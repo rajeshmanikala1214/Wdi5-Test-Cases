@@ -11,10 +11,13 @@ exports.config = {
     services: ['chromedriver', 'ui5'],
     framework: 'mocha',
     reporters: [
-        'spec',
         ['junit', {
             outputDir: './reports/junit',
-            outputFileFormat: opts => `results-${opts.cid}.xml`
+            outputFileFormat: function(opts) { return `results-${opts.cid}.xml`; }
+        }],
+        ['json', {
+            outputDir: './reports/json',
+            outputFile: 'results.json'
         }]
     ],
     mochaOpts: {

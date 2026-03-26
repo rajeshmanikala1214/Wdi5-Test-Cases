@@ -1,6 +1,6 @@
 exports.config = {
     runner: 'local',
-    specs: ['./webapp/test/e2e/*.test.js'],
+    specs: ['./e2e/*.test.js'],
     maxInstances: 1,
     capabilities: [{
         browserName: 'chrome',

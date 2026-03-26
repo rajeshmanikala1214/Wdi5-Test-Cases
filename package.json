@@ -4,9 +4,9 @@
   "description": "WDI5 UI5 Automation Tests",
   
   "scripts": {
-    "test:opa5": "npx ui5 serve --port 8080 & sleep 15 && npx ui5-test-runner --url http://localhost:8080/test/testsuite.qunit.html --report-dir reports --coverage",
-    "wdi5": "wdio run webapp/test/e2e/wdio.conf.js"
-  },
+  "wdi5": "wdio run ./webapp/test/e2e/wdio.conf.js",
+  "ci-e2e": "npm run wdi5" 
+},
 
   "devDependencies": {
   "@wdio/cli": "^8.8.1",

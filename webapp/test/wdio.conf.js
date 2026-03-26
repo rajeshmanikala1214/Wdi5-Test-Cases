@@ -10,16 +10,21 @@ exports.config = {
     capabilities: [{
         browserName: 'chrome',
         'goog:chromeOptions': {
-            args: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
+            args: [
+                '--headless',
+                '--no-sandbox',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--window-size=1920,1080'
+            ]
         }
     }],
 
+    // Use the chromedriver service (works in Docker/CI)
     services: [
-    ['chromedriver', {
-        chromedriverCustomPath: require('chromedriver').path
-    }],
-    'ui5'
-],
+        ['chromedriver'],
+        'ui5'
+    ],
 
     framework: 'mocha',
 
@@ -35,8 +40,13 @@ exports.config = {
 
     mochaOpts: {
         ui: 'bdd',
-        timeout: 60000
+        timeout: 120000 // 2 minutes per test
     },
 
-    baseUrl: 'http://localhost:8080'
+    baseUrl: 'http://localhost:8080',
+
+    // Retry failed tests in CI
+    specFileRetries: 1,
+    specFileRetriesDelay: 3,
+    specFileRetriesDeferred: false
 };

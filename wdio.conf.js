@@ -1,6 +1,6 @@
 exports.config = {
     runner: 'local',
-    specs: ['./e2e/*.test.js'],
+    specs: ['./e2e/**/*.test.js'], // make sure your test files are inside ./e2e/
     maxInstances: 1,
     capabilities: [{
         browserName: 'chrome',
@@ -8,16 +8,15 @@ exports.config = {
             args: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
         }
     }],
-    services: ['chromedriver', ['ui5', {
-        url: 'http://localhost:8080',
-        language: 'EN',
-        ignoreVersionMismatch: true
-    }]],
+    services: [
+        'ui5', 
+        'chromedriver' // use the official WDIO chromedriver service
+    ],
     framework: 'mocha',
     reporters: [
         ['junit', {
             outputDir: './reports/junit',
-            outputFileFormat: opts => `results-${opts.cid}.xml`
+            outputFileFormat: (opts) => `results-${opts.cid}.xml`
         }],
         ['json', {
             outputDir: './reports/json',

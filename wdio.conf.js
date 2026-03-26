@@ -8,12 +8,16 @@ exports.config = {
             args: ['--headless', '--no-sandbox', '--disable-dev-shm-usage']
         }
     }],
-    services: ['chromedriver', 'ui5'],
+    services: ['chromedriver', ['ui5', {
+        url: 'http://localhost:8080',
+        language: 'EN',
+        ignoreVersionMismatch: true
+    }]],
     framework: 'mocha',
     reporters: [
         ['junit', {
             outputDir: './reports/junit',
-            outputFileFormat: function(opts) { return `results-${opts.cid}.xml`; }
+            outputFileFormat: opts => `results-${opts.cid}.xml`
         }],
         ['json', {
             outputDir: './reports/json',

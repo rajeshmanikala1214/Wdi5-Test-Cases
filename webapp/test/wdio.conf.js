@@ -14,7 +14,12 @@ exports.config = {
         }
     }],
 
-    services: ['chromedriver', 'ui5'],
+    services: [
+    ['chromedriver', {
+        chromedriverCustomPath: require('chromedriver').path
+    }],
+    'ui5'
+],
 
     framework: 'mocha',
 

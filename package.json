@@ -7,7 +7,8 @@
     "wdi5"   : "wdio run ./wdio.conf.js",
     "opa5"   : "node scripts/run-opa5.js",
     "ci-e2e" : "npm run wdi5",
-    "ci-all" : "npm run wdi5 && npm run opa5"
+    "ci-all" : "npm run wdi5 && npm run opa5",
+    "test:coverage": "nyc --reporter=lcov --reporter=text npm run wdi5"
   },
 
   "devDependencies": {

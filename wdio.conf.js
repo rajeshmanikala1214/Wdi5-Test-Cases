@@ -52,8 +52,7 @@ exports.config = {
         }]
     ],
 
-   baseUrl: process.env.BASE_URL || 'http://localhost:8080',
-
+    baseUrl: 'http://host.docker.internal:8080',
     onPrepare() {
         const fs = require('fs');
         ['reports/junit/wdi5', 'reports/json/wdi5'].forEach(d =>

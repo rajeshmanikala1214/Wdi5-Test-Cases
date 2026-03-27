@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# .pipeline/config.yaml
+# Piper pipeline configuration for UI5 E2E Test Suite
+# Covers: WDI5 · OPA5 · UiVeri5
+# ─────────────────────────────────────────────────────────────────────────────
+
+general:
+  buildTool: npm
+  productiveBranch: main
+
+stages:
+  Test:
+    npmExecuteTests: true
+    uiVeri5ExecuteTests: true
+
+steps:
+
+  # ── WDI5 / OPA5 via npmExecuteTests ─────────────────────────────────────
+  npmExecuteTests:
+    dockerImage: ppiper/node-browsers:latest
+    dockerWorkspace: /home/node
+    installCommand: npm install --legacy-peer-deps
+    runCommand: npm run wdi5
+    baseUrl: "http://localhost:8080/index.html"
+    workingDirectory: .
+    dockerEnvVars:
+      NO_PROXY: "localhost,selenium"
+      no_proxy: "localhost,selenium"
+
+  # ── UiVeri5 via uiVeri5ExecuteTests ─────────────────────────────────────
+  uiVeri5ExecuteTests:
+    dockerImage: ppiper/node-browsers:latest
+    dockerWorkspace: /home/node
+    installCommand: npm install @ui5/uiveri5 --global --quiet
+    runCommand: /home/node/.npm-global/bin/uiveri5
+    runOptions:
+      - "--seleniumAddress=http://localhost:4444/wd/hub"
+    dockerEnvVars:
+      NO_PROXY: "localhost,selenium"
+      no_proxy: "localhost,selenium"

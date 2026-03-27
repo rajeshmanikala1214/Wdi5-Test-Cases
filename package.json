@@ -4,24 +4,22 @@
   "description": "UI5 Automation Tests – WDI5 + OPA5 + UiVeri5",
 
   "scripts": {
-    "wdi5"      : "wdio run ./wdio.conf.js",
-    "opa5"      : "ui5 test --reporter junit:reports/junit/opa5/results.xml --reporter json:reports/json/opa5/results.json",
-    "uiveri5"   : "uiveri5 --seleniumAddress=http://localhost:4444/wd/hub ./webapp/test/ui5-uiveri5/conf.js",
-    "ci-e2e"    : "npm run wdi5",
-    "ci-all"    : "npm run wdi5 && npm run opa5",
-    "sonar"     : "sonar-scanner"
+    "wdi5"    : "wdio run ./wdio.conf.js",
+    "opa5"    : "npx ui5 test --reporter junit:reports/junit/opa5/results.xml --reporter json:reports/json/opa5/results.json",
+    "ci-e2e"  : "npm run wdi5",
+    "ci-all"  : "npm run wdi5 && npm run opa5",
+    "sonar"   : "sonar-scanner"
   },
 
   "devDependencies": {
-    "@wdio/cli"             : "^8.8.1",
-    "@wdio/local-runner"    : "^8.8.1",
-    "@wdio/spec-reporter"   : "^8.8.1",
-    "@wdio/junit-reporter"  : "^8.8.1",
-    "@wdio/json-reporter"   : "^8.8.1",
-    "wdio-ui5-service"      : "^2.2.1",
-    "chromedriver"          : "^146.0.0",
-    "typescript"            : "^5.2.2",
-    "sonar-scanner"         : "^3.1.0"
+    "@wdio/cli"           : "^8.8.1",
+    "@wdio/local-runner"  : "^8.8.1",
+    "@wdio/spec-reporter" : "^8.8.1",
+    "@wdio/junit-reporter": "^8.8.1",
+    "@wdio/json-reporter" : "^8.8.1",
+    "wdio-ui5-service"    : "^2.2.1",
+    "typescript"          : "^5.2.2",
+    "sonar-scanner"       : "^3.1.0"
   },
 
   "dependencies": {

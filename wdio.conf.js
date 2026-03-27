@@ -1,6 +1,7 @@
 // wdio.conf.js – WDI5 / WebdriverIO configuration
-// FIX: removed 'chromedriver' from services.
-// ppiper/node-browsers already has chromedriver on PATH – no plugin needed.
+// Reporters: JUnit XML (SonarQube) + JSON (archive)
+// Services:  ui5 only  (ppiper/node-browsers has chromedriver on PATH)
+// Framework: mocha     (requires @wdio/mocha-framework in package.json)
 
 const path = require('path');
 
@@ -24,13 +25,14 @@ exports.config = {
         }
     }],
 
+    // ── FIX: @wdio/mocha-framework must be installed (now in package.json)
     framework: 'mocha',
     mochaOpts: {
         ui: 'bdd',
         timeout: 60000
     },
 
-    // ── FIX: only 'ui5' service; 'chromedriver' removed (causes plugin-not-found error)
+    // ── FIX: no 'chromedriver' service – it's a binary, not a wdio plugin
     services: ['ui5'],
 
     reporters: [
@@ -63,10 +65,9 @@ exports.config = {
         if (error) {
             const ts   = new Date().toISOString().replace(/[:.]/g, '-');
             const name = test.title.replace(/\s/g, '_').substring(0, 50);
-            const file = `reports/screenshots/${name}_${ts}.png`;
             const fs   = require('fs');
             fs.mkdirSync('reports/screenshots', { recursive: true });
-            browser.saveScreenshot(file).catch(() => {});
+            browser.saveScreenshot(`reports/screenshots/${name}_${ts}.png`).catch(() => {});
         }
     }
 };

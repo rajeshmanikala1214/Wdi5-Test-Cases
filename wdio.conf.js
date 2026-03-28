@@ -1,6 +1,7 @@
 // wdio.conf.js – WDI5 / WebdriverIO configuration
-// Coverage: collected via nyc wrapping wdio, produces coverage/lcov.info
-// Reporters: JUnit XML (SonarQube test counts) + JSON (archive)
+// JUnit reporter is configured to emit the real spec file path in
+// the <testsuite file="..."> attribute so SonarQube can match tests
+// to indexed test files and display pass/fail counts on the dashboard.
 
 const path = require('path');
 const fs   = require('fs');
@@ -10,6 +11,7 @@ exports.config = {
 
     specs: ['./webapp/test/e2e/**/*.test.js'],
     exclude: [],
+
     maxInstances: 1,
 
     capabilities: [{
@@ -31,61 +33,93 @@ exports.config = {
         timeout: 60000
     },
 
-    // ui5 service only – chromedriver binary is already on PATH in ppiper/node-browsers
+    // ui5 service only – no chromedriver service needed
     services: ['ui5'],
 
     reporters: [
         'spec',
+
+        // ── JUnit reporter ─────────────────────────────────────────────────
+        // suiteName  → written into <testsuite name="...">
+        // classname  → written into <testcase classname="...">
+        // The "file" attribute in <testsuite> is what SonarQube Generic Test
+        // Execution needs. wdio/junit-reporter sets it from the spec file path.
         ['junit', {
             outputDir: path.join(__dirname, 'reports/junit/wdi5'),
             outputFileFormat: (opts) => `wdi5-results-${opts.cid}.xml`,
-            // ── These classname/suitename settings make SonarQube show test names
-            classNameTemplate: (v) => `${v.activeFeatureName}`,
-            titleTemplate:     (v) => v.title,
+
+            // classname = suite description (used in converter to build full test name)
+            classNameTemplate: (v) => v.activeFeatureName || v.title || 'ui5',
+
+            // suite name = spec filename (shown in SonarQube test file list)
+            suiteName: (v) => {
+                if (v && v.file) {
+                    // Convert absolute → relative path e.g.
+                    // /var/jenkins_home/.../webapp/test/e2e/basic.test.js
+                    // → webapp/test/e2e/basic.test.js
+                    const idx = v.file.indexOf('/webapp/');
+                    return idx !== -1 ? v.file.slice(idx + 1) : v.file;
+                }
+                return 'ui5-tests';
+            },
+
             errorOptions: {
-                error: 'message',
-                failure: 'message',
+                error:      'message',
+                failure:    'message',
                 stacktrace: 'stack'
-            }
+            },
+
+            // Add spec file path as <property> inside each <testsuite>
+            // so the converter can always find the real path
+            addFileAttribute: true,   // wdio ≥8: emits file="..." on <testsuite>
         }],
+
+        // ── JSON reporter ──────────────────────────────────────────────────
         ['json', {
-            outputDir: path.join(__dirname, 'reports/json/wdi5'),
+            outputDir:  path.join(__dirname, 'reports/json/wdi5'),
             outputFile: 'wdi5-results.json'
         }]
     ],
 
     baseUrl: process.env.BASE_URL || 'http://localhost:8080',
 
-    // ── Hooks ────────────────────────────────────────────────────────────────
+    // ── Lifecycle hooks ───────────────────────────────────────────────────────
+
     onPrepare() {
-        ['reports/junit/wdi5', 'reports/json/wdi5', 'coverage', 'reports/screenshots']
+        ['reports/junit/wdi5', 'reports/json/wdi5',
+         'coverage', '.nyc_output', 'reports/screenshots']
             .forEach(d => fs.mkdirSync(d, { recursive: true }));
-        console.log('Report directories created.');
+        console.log('[wdio] Directories created.');
     },
 
     afterTest(test, _ctx, { error }) {
+        // Screenshot on failure
         if (error) {
-            const ts   = new Date().toISOString().replace(/[:.]/g, '-');
-            const name = test.title.replace(/\W/g, '_').substring(0, 50);
-            fs.mkdirSync('reports/screenshots', { recursive: true });
-            browser.saveScreenshot(`reports/screenshots/${name}_${ts}.png`).catch(() => {});
+            try {
+                const ts   = new Date().toISOString().replace(/[:.]/g, '-');
+                const name = (test.title || 'test').replace(/\W+/g, '_').slice(0, 50);
+                fs.mkdirSync('reports/screenshots', { recursive: true });
+                browser.saveScreenshot(`reports/screenshots/${name}_${ts}.png`);
+            } catch (_) { /* ignore */ }
         }
     },
 
-    // Collect browser-side coverage after each test session
-    after(result, capabilities, specs) {
-        // If the app instruments itself with window.__coverage__, collect it
+    after() {
+        // Collect browser-side coverage if app is instrumented with window.__coverage__
+        // (requires istanbul-middleware or @istanbuljs/schema on the app side)
         try {
-            const coverage = browser.execute(() => window.__coverage__ || null);
-            if (coverage) {
+            const coverage = browser.execute(() =>
+                typeof window !== 'undefined' ? (window.__coverage__ || null) : null
+            );
+            if (coverage && Object.keys(coverage).length > 0) {
                 const outDir = path.join(__dirname, '.nyc_output');
                 fs.mkdirSync(outDir, { recursive: true });
-                const file = path.join(outDir, `coverage-${Date.now()}.json`);
-                fs.writeFileSync(file, JSON.stringify(coverage));
-                console.log('Browser coverage written to', file);
+                const outFile = path.join(outDir, `coverage-${Date.now()}.json`);
+                fs.writeFileSync(outFile, JSON.stringify(coverage));
+                console.log('[wdio] Browser coverage saved to', outFile);
             }
-        } catch (e) {
-            // App not instrumented – coverage from nyc wrapping wdio process instead
+        } catch (_) {
+            // App not instrumented with window.__coverage__ — that's OK
         }
     }
 };

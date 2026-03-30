@@ -7,7 +7,8 @@
     "test:wdi5": "wdio run ./wdio.conf.js",
     "test:wdi5:cov": "nyc --reporter=lcov --reporter=text --report-dir=coverage wdio run ./wdio.conf.js",
     "test:uiveri5": "uiveri5 --config webapp/test/ui5-uiveri5/conf.js",
-    "ci-all": "npm run test:wdi5 && npm run test:opa5"
+    "ci-all": "npm run test:wdi5 && npm run test:opa5",
+    "build": "ui5 build"
   },
   "nyc": {
     "include": [

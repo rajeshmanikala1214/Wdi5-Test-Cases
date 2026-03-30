@@ -11,9 +11,12 @@ exports.config = {
     baseUrl: process.env.BASE_URL || 'http://localhost:8080/index.html',
 
     // Specs relative to this conf.js file
+    // specs: [
+    // './webapp/test/ui5-uiveri5/specs/*.spec.js'
+    //  ],
     specs: [
-    './webapp/test/ui5-uiveri5/specs/*.spec.js'
-     ],
+    './specs/*.spec.js'
+],
 
     // Browser capabilities
     capabilities: [{

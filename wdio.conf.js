@@ -18,6 +18,13 @@ exports.config = {
         }
     }],
 
+    browsers: ['ChromeHeadlessNoSandbox'],
+customLaunchers: {
+  ChromeHeadlessNoSandbox: {
+    base: 'ChromeHeadless',
+    flags: ['--no-sandbox', '--disable-dev-shm-usage']
+  }
+},
     framework: 'mocha',
 
     mochaOpts: {

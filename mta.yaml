@@ -1,0 +1,12 @@
+ID: wdi5-test-project
+_schema-version: "3.1"
+version: 1.0.0
+
+modules:
+  - name: app
+    type: html5
+    path: .
+    build-parameters:
+      builder: custom
+      commands:
+        - npm install

@@ -20,7 +20,7 @@ fs.mkdirSync(JSON_DIR,  { recursive: true });
 function tryKarma() {
     try {
         const result = spawnSync(
-            'npx', ['karma', 'start', '--single-run', '--no-auto-watch'],
+            'npx', ['karma', 'start', 'karma.conf.js', '--single-run'],
             { stdio: 'inherit', timeout: 120000 }
         );
         return result.status === 0;

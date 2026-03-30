@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="OPA5 Tests" tests="0" failures="0" errors="0" skipped="0">
+  <testsuite name="OPA5 Placeholder" tests="0" time="0">
+    <properties>
+      <property name="note" value="No OPA5 karma runner configured – placeholder report"/>
+    </properties>
+  </testsuite>
+</testsuites>

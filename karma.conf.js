@@ -1,16 +1,34 @@
-module.exports = function(config) {
-  config.set({
-    frameworks: ['ui5'],
+module.exports = function (config) {
+    config.set({
+        frameworks: ["ui5"],
 
-    browsers: ['ChromeHeadless'],
+        ui5: {
+            configPath: "ui5.yaml",
+            mode: "script"
+        },
 
-    singleRun: true,
+        browsers: ["ChromeHeadless"],
 
-    ui5: {
-      type: 'application',
-      paths: {
-        webapp: 'webapp'
-      }
-    }
-  });
+        customLaunchers: {
+            ChromeHeadless: {
+                base: "Chrome",
+                flags: [
+                    "--headless",
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-dev-shm-usage"
+                ]
+            }
+        },
+
+        singleRun: true,
+
+        reporters: ["progress", "junit"],
+
+        junitReporter: {
+            outputDir: "test-results",
+            outputFile: "opa5-results.xml",
+            useBrowserName: false
+        }
+    });
 };

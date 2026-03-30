@@ -1,262 +1,329 @@
+#!/usr/bin/env node
 /**
- * scripts/convert-to-sonar-generic.js
+ * convert-to-sonar-generic.js  (memory-safe version)
  *
- * Converts wdio JUnit XML → SonarQube Generic Test Execution XML.
+ * Processes JUnit XML files ONE AT A TIME using a simple line-by-line
+ * SAX-style state machine — no regex on giant strings, no full-file
+ * buffers held in memory simultaneously.
  *
- * KEY FIX: wdio JUnit reporter puts the REAL test file path in the
- * <testsuite file="..."> attribute.  We extract that so SonarQube can
- * match the testCase to an indexed test file and show pass/fail counts
- * on the Measures → Tests dashboard.
- *
- * SonarQube Generic Test Execution spec (version 1):
- *   <testExecutions version="1">
- *     <file path="relative/path/to/test.js">
- *       <testCase name="suite > test" duration="123"/>           ← passed
- *       <testCase name="suite > test" duration="123">
- *         <failure message="reason"/>                            ← failed
- *       </testCase>
- *       <testCase name="suite > test" duration="0">
- *         <skipped message="skipped"/>                           ← skipped
- *       </testCase>
- *     </file>
- *   </testExecutions>
- *
- * The path must be relative to the project root (sonar.projectBaseDir).
- * SonarQube must have indexed that file under sonar.tests.
+ * Outputs:
+ *   reports/junit/combined/all-results.xml   ← merged JUnit (streamed)
+ *   reports/sonar/test-execution.xml         ← Sonar Generic format
+ *   reports/test-summary.json                ← machine-readable summary
  */
-
 'use strict';
 
 const fs   = require('fs');
 const path = require('path');
 
-// ── XML helpers ──────────────────────────────────────────────────────────────
-
-/** Extract a single attribute value from a tag string */
-function attr(tagStr, name) {
-    const re = new RegExp(`\\s${name}="([^"]*)"`, 'i');
-    const m  = re.exec(tagStr);
-    return m ? m[1] : null;
+// ── XML helpers ─────────────────────────────────────────────────────────────
+function escXml(s) {
+  return String(s ?? '')
+    .replace(/&/g,  '&amp;')
+    .replace(/</g,  '&lt;')
+    .replace(/>/g,  '&gt;')
+    .replace(/"/g,  '&quot;');
 }
 
-/** Escape special XML chars */
-function esc(s) {
-    return (s || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&apos;');
+/** Pull one attribute value out of an opening-tag string. */
+function attr(tagStr, name, fallback) {
+  const re = new RegExp('\\b' + name + '=["\']([^"\']*)["\']');
+  const m  = tagStr.match(re);
+  return m ? m[1] : (fallback ?? '');
 }
 
-/** Convert an absolute or workspace-relative path to a project-relative path */
-function toRelative(filePath) {
-    if (!filePath) return null;
-
-    // Strip the workspace prefix that Jenkins injects
-    // e.g. /var/jenkins_home/workspace/UI5-Framework-Tests/webapp/test/e2e/basic.test.js
-    //   → webapp/test/e2e/basic.test.js
-    const markers = [
-        '/webapp/',
-        '/test/',
-        'webapp/',
-    ];
-    for (const marker of markers) {
-        const idx = filePath.indexOf(marker);
-        if (idx !== -1) {
-            // Return from "webapp/" onward
-            const webappIdx = filePath.indexOf('/webapp/');
-            if (webappIdx !== -1) return filePath.slice(webappIdx + 1); // drop leading /
-            return filePath.slice(idx);
-        }
-    }
-
-    // Already relative?
-    if (!path.isAbsolute(filePath)) return filePath;
-
-    return null; // can't determine
+// ── file discovery ───────────────────────────────────────────────────────────
+function findXml(dir) {
+  if (!fs.existsSync(dir)) return [];
+  const out = [];
+  for (const f of fs.readdirSync(dir)) {
+    const full = path.join(dir, f);
+    if (fs.statSync(full).isDirectory()) out.push(...findXml(full));
+    else if (f.endsWith('.xml'))          out.push(full);
+  }
+  return out;
 }
 
-// ── Parse a single JUnit XML file ────────────────────────────────────────────
+const roots    = ['reports/junit/wdi5', 'reports/junit/opa5', 'reports/junit/uiveri5'];
+const xmlFiles = roots.flatMap(findXml);
 
-/**
- * Returns an array of:
- *   { file: 'webapp/test/e2e/basic.test.js', name: 'suite > test',
- *     duration: 123, status: 'ok'|'failure'|'error'|'skipped', message: '' }
- */
-function parseJUnit(xml) {
-    const results = [];
+console.log('\n══════════════════════════════════════════════════');
+console.log('  UI5 Test Report Generator  (memory-safe)');
+console.log('══════════════════════════════════════════════════');
+console.log('Found ' + xmlFiles.length + ' XML file(s):');
+xmlFiles.forEach(f => console.log('  ' + f));
+console.log('');
 
-    // Match every <testsuite> block
-    const suiteRe = /<testsuite([^>]*)>([\s\S]*?)<\/testsuite>/gi;
-    let suiteMatch;
+// ── output file handles (streamed, never fully buffered) ─────────────────────
+fs.mkdirSync('reports/junit/combined', { recursive: true });
+fs.mkdirSync('reports/sonar',          { recursive: true });
 
-    while ((suiteMatch = suiteRe.exec(xml)) !== null) {
-        const suiteAttrs = suiteMatch[1];
-        const suiteBody  = suiteMatch[2];
+const junitOut = fs.openSync('reports/junit/combined/all-results.xml', 'w');
+const sonarOut = fs.openSync('reports/sonar/test-execution.xml',        'w');
 
-        // wdio puts the real file path in the "file" attribute of <testsuite>
-        let filePath = attr(suiteAttrs, 'file') || attr(suiteAttrs, 'name') || '';
+function jWrite(s) { fs.writeSync(junitOut, s); }
+function sWrite(s) { fs.writeSync(sonarOut, s); }
 
-        // Convert to project-relative path
-        const relFile = toRelative(filePath) || 'webapp/test/e2e/unknown.test.js';
+// Headers — totals go at the end so we write a placeholder and fix it later
+// Strategy: write to tmp file, prepend header at the end.
+const junitTmpPath = 'reports/junit/combined/.suites.tmp';
+const junitTmp     = fs.openSync(junitTmpPath, 'w');
+function jtWrite(s) { fs.writeSync(junitTmp, s); }
 
-        // Parse every <testcase> inside this suite
-        const caseRe = /<testcase([^>]*)>([\s\S]*?)<\/testcase>|<testcase([^>]*)\/>/gi;
-        let caseMatch;
+sWrite('<?xml version="1.0" encoding="UTF-8"?>\n');
+sWrite('<testExecutions version="1">\n');
 
-        while ((caseMatch = caseRe.exec(suiteBody)) !== null) {
-            const caseAttrs = caseMatch[1] || caseMatch[3] || '';
-            const inner     = caseMatch[2] || '';
+// ── totals ───────────────────────────────────────────────────────────────────
+let gTests = 0, gFail = 0, gErr = 0, gSkip = 0, gTime = 0;
+const fwMap  = { wdi5:{t:0,f:0,e:0,s:0}, opa5:{t:0,f:0,e:0,s:0}, uiveri5:{t:0,f:0,e:0,s:0} };
 
-            const name     = attr(caseAttrs, 'name')      || 'unknown';
-            const suite    = attr(caseAttrs, 'classname') || '';
-            const timeStr  = attr(caseAttrs, 'time')      || '0';
-            const duration = Math.round(parseFloat(timeStr) * 1000);
+// For the console breakdown (only names — not full bodies — so low memory)
+const passedList  = [];
+const failedList  = [];
+const skippedList = [];
 
-            // Full test name = "Suite > Test Name"
-            const fullName = suite ? `${suite} > ${name}` : name;
+// ── Process each file individually ──────────────────────────────────────────
+for (const file of xmlFiles) {
+  const framework = file.includes('/wdi5/')    ? 'wdi5'
+                  : file.includes('/opa5/')    ? 'opa5'
+                  : file.includes('/uiveri5/') ? 'uiveri5' : 'unknown';
 
-            let status  = 'ok';
-            let message = '';
+  // Read file in one go — individual files are small (1-20 KB each)
+  const src = fs.readFileSync(file, 'utf8');
 
-            if (/<failure/i.test(inner)) {
-                status  = 'failure';
-                const fm = /<failure[^>]*message="([^"]*)"/i.exec(inner);
-                if (!fm) {
-                    // message might be in CDATA / element text
-                    const txt = inner.replace(/<[^>]+>/g, '').trim();
-                    message = txt.substring(0, 300);
-                } else {
-                    message = fm[1];
-                }
-            } else if (/<error/i.test(inner)) {
-                status  = 'error';
-                const em = /<error[^>]*message="([^"]*)"/i.exec(inner);
-                message = em ? em[1] : 'test error';
-            } else if (/<skipped/i.test(inner)) {
-                status = 'skipped';
-            }
+  // ── Simple state-machine parser (avoids catastrophic backtracking) ──────
+  // We walk the XML character by character tracking depth.
+  // States: OUTER → in <testsuite> → in <testcase>
 
-            results.push({ file: relFile, name: fullName, duration, status, message });
-        }
-    }
+  let pos = 0;
 
-    return results;
-}
+  while (pos < src.length) {
+    // Find next tag
+    const tagStart = src.indexOf('<', pos);
+    if (tagStart === -1) break;
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+    const tagEnd = src.indexOf('>', tagStart);
+    if (tagEnd === -1) break;
 
-const JUNIT_DIRS = [
-    'reports/junit/wdi5',
-    'reports/junit/opa5',
-    'reports/junit/uiveri5',
-];
-const OUT_FILE   = 'reports/sonar-test-execution.xml';
-const SUMMARY_FILE = 'reports/test-summary.json';
+    const rawTag = src.slice(tagStart, tagEnd + 1);
+    pos = tagEnd + 1;
 
-let allTests = [];
+    // ── <testsuite ...> ──────────────────────────────────────────────────
+    if (/^<testsuite\b/i.test(rawTag) && !rawTag.startsWith('</') && !rawTag.startsWith('<testsuites')) {
+      const sTests = parseInt(attr(rawTag, 'tests'),    10) || 0;
+      const sFail  = parseInt(attr(rawTag, 'failures'), 10) || 0;
+      const sErr   = parseInt(attr(rawTag, 'errors'),   10) || 0;
+      const sSkip  = parseInt(attr(rawTag, 'skipped'),  10) || 0;
+      const sTime  = parseFloat(attr(rawTag, 'time'))       || 0;
 
-for (const dir of JUNIT_DIRS) {
-    if (!fs.existsSync(dir)) continue;
-    const xmlFiles = fs.readdirSync(dir)
-        .filter(f => f.endsWith('.xml'))
-        .sort();
+      gTests += sTests; gFail += sFail; gErr += sErr; gSkip += sSkip; gTime += sTime;
+      if (fwMap[framework]) {
+        fwMap[framework].t += sTests;
+        fwMap[framework].f += sFail;
+        fwMap[framework].e += sErr;
+        fwMap[framework].s += sSkip;
+      }
 
-    for (const xmlFile of xmlFiles) {
-        const xml      = fs.readFileSync(path.join(dir, xmlFile), 'utf8');
-        const testcases = parseJUnit(xml);
-        allTests = allTests.concat(testcases);
-    }
-}
+      const suiteName = attr(rawTag, 'name');
+      const suiteFile = attr(rawTag, 'file');
 
-// ── Group by file ─────────────────────────────────────────────────────────────
-const byFile = {};
-for (const t of allTests) {
-    if (!byFile[t.file]) byFile[t.file] = [];
-    byFile[t.file].push(t);
-}
+      // Write suite opening to merged JUnit
+      jtWrite('  ' + rawTag + '\n');
 
-// ── Build Generic Test Execution XML ─────────────────────────────────────────
-let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<testExecutions version="1">\n';
+      // Find the end of this testsuite block (no nesting in JUnit)
+      const suiteEnd = src.indexOf('</testsuite>', pos);
+      const suiteBody = suiteEnd !== -1 ? src.slice(pos, suiteEnd) : '';
+      pos = suiteEnd !== -1 ? suiteEnd + '</testsuite>'.length : src.length;
 
-for (const [file, tests] of Object.entries(byFile)) {
-    xml += `  <file path="${esc(file)}">\n`;
-    for (const t of tests) {
-        xml += `    <testCase name="${esc(t.name)}" duration="${t.duration}"`;
-        if (t.status === 'ok') {
-            xml += '/>\n';
-        } else if (t.status === 'skipped') {
-            xml += '>\n      <skipped message="skipped"/>\n    </testCase>\n';
+      // Write suite body + closing tag
+      jtWrite(suiteBody);
+      jtWrite('  </testsuite>\n');
+
+      // ── parse testcases within this suite body ────────────────────────
+      // We use a simple forward scan — suiteBody is small per file
+      let cp = 0;
+      while (cp < suiteBody.length) {
+        const tcStart = suiteBody.indexOf('<testcase', cp);
+        if (tcStart === -1) break;
+
+        const tcTagEnd = suiteBody.indexOf('>', tcStart);
+        if (tcTagEnd === -1) break;
+
+        const selfClose = suiteBody[tcTagEnd - 1] === '/';
+        const tcTag     = suiteBody.slice(tcStart, tcTagEnd + 1);
+
+        let tcBody = '';
+        if (!selfClose) {
+          const tcClose = suiteBody.indexOf('</testcase>', tcTagEnd);
+          if (tcClose !== -1) {
+            tcBody = suiteBody.slice(tcTagEnd + 1, tcClose);
+            cp     = tcClose + '</testcase>'.length;
+          } else {
+            cp = tcTagEnd + 1;
+          }
         } else {
-            xml += `>\n      <failure message="${esc(t.message || t.status)}"/>\n    </testCase>\n`;
+          cp = tcTagEnd + 1;
         }
+
+        // ── determine status ────────────────────────────────────────────
+        const name      = escXml(attr(tcTag, 'name'));
+        const classname = attr(tcTag, 'classname');
+        const fileAttr  = attr(tcTag, 'file');
+        const timeMs    = Math.round((parseFloat(attr(tcTag, 'time', '0')) || 0) * 1000);
+
+        let status  = 'OK';
+        let message = '';
+
+        if (/<skipped/i.test(tcBody)) {
+          status = 'SKIPPED';
+        } else if (/<failure/i.test(tcBody)) {
+          status  = 'FAILED';
+          const fm = tcBody.match(/<failure[^>]*message="([^"]*)"/);
+          const ft = tcBody.match(/<failure[^>]*>([\s\S]*?)<\/failure>/);
+          const raw = fm ? fm[1] : (ft ? ft[1].trim().replace(/\n.*/s, '') : 'Test failure');
+          message = escXml(raw.slice(0, 200));
+        } else if (/<error/i.test(tcBody)) {
+          status  = 'ERROR';
+          const em = tcBody.match(/<error[^>]*message="([^"]*)"/);
+          message = escXml((em ? em[1] : 'Test error').slice(0, 200));
+        }
+
+        // ── resolve spec file path ──────────────────────────────────────
+        let specFile = fileAttr || suiteFile || '';
+        // Strip absolute prefix that wdio injects
+        specFile = specFile
+          .replace(/^file:\/+/, '')
+          .replace(/^\/var\/jenkins_home\/workspace\/[^/]+\//, '');
+
+        if (!specFile || /^chrome\s/i.test(specFile) || specFile.startsWith('/')) {
+          if (classname && classname.startsWith('webapp')) {
+            specFile = classname.replace(/\./g, '/') + '.js';
+          } else {
+            const slug = (suiteName || 'unknown')
+              .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            specFile = 'webapp/test/e2e/' + slug + '.test.js';
+          }
+        }
+
+        // ── write to Sonar Generic XML ──────────────────────────────────
+        // We group by specFile by accumulating into a per-file buffer.
+        // Since individual files are small this is fine.
+        if (!global._sonarBuf) global._sonarBuf = new Map();
+        if (!global._sonarBuf.has(specFile)) global._sonarBuf.set(specFile, []);
+
+        const escapedName = name; // already escaped above
+        if (status === 'OK' || status === 'SKIPPED') {
+          global._sonarBuf.get(specFile).push(
+            '    <testCase name="' + escapedName + '" duration="' + timeMs + '" status="' + status + '"/>'
+          );
+        } else {
+          const tag = status === 'FAILED' ? 'failure' : 'error';
+          global._sonarBuf.get(specFile).push(
+            '    <testCase name="' + escapedName + '" duration="' + timeMs + '" status="' + status + '">\n' +
+            '      <' + tag + ' message="' + message + '"/>\n' +
+            '    </testCase>'
+          );
+        }
+
+        // ── console tracking ────────────────────────────────────────────
+        const label = '[' + framework.toUpperCase() + '] ' + attr(tcTag, 'name').slice(0, 70);
+        if (status === 'OK')                       passedList.push(label);
+        else if (status === 'SKIPPED')             skippedList.push(label);
+        else failedList.push(label + (message ? '\n         ↳ ' + message.replace(/&[a-z]+;/g,'').slice(0,100) : ''));
+      }
+      // end testcase loop
     }
-    xml += '  </file>\n';
-}
-xml += '</testExecutions>\n';
-
-fs.mkdirSync('reports', { recursive: true });
-fs.writeFileSync(OUT_FILE, xml);
-
-// ── Human-readable summary ────────────────────────────────────────────────────
-const total   = allTests.length;
-const passed  = allTests.filter(t => t.status === 'ok').length;
-const failed  = allTests.filter(t => t.status === 'failure' || t.status === 'error').length;
-const skipped = allTests.filter(t => t.status === 'skipped').length;
-
-// Per-file breakdown
-const fileBreakdown = {};
-for (const [file, tests] of Object.entries(byFile)) {
-    fileBreakdown[file] = {
-        total:   tests.length,
-        passed:  tests.filter(t => t.status === 'ok').length,
-        failed:  tests.filter(t => t.status === 'failure' || t.status === 'error').length,
-        skipped: tests.filter(t => t.status === 'skipped').length,
-        failedTests: tests
-            .filter(t => t.status === 'failure' || t.status === 'error')
-            .map(t => ({ name: t.name, message: t.message })),
-        passedTests: tests
-            .filter(t => t.status === 'ok')
-            .map(t => t.name),
-    };
+    // end testsuite handling
+  }
+  // Done with this file — release the string from memory
+  // (GC will collect it on next cycle)
 }
 
+// ── Flush Sonar Generic XML ──────────────────────────────────────────────────
+if (global._sonarBuf) {
+  for (const [filePath, lines] of global._sonarBuf.entries()) {
+    sWrite('  <file path="' + escXml(filePath) + '">\n');
+    for (const l of lines) sWrite(l + '\n');
+    sWrite('  </file>\n');
+  }
+  global._sonarBuf = null; // release
+}
+sWrite('</testExecutions>\n');
+fs.closeSync(sonarOut);
+
+// ── Finalise merged JUnit (prepend header) ───────────────────────────────────
+fs.closeSync(junitTmp);
+
+const header = [
+  '<?xml version="1.0" encoding="UTF-8"?>',
+  '<testsuites name="UI5-All-Tests"',
+  '            tests="'    + gTests + '"',
+  '            failures="' + gFail  + '"',
+  '            errors="'   + gErr   + '"',
+  '            skipped="'  + gSkip  + '"',
+  '            time="'     + gTime.toFixed(3) + '">',
+  ''
+].join('\n');
+
+jWrite(header);
+
+// Stream the tmp body into the final file in 64 KB chunks
+const CHUNK = 64 * 1024;
+const tmpFd = fs.openSync(junitTmpPath, 'r');
+const buf   = Buffer.allocUnsafe(CHUNK);
+let   bytesRead;
+while ((bytesRead = fs.readSync(tmpFd, buf, 0, CHUNK)) > 0) {
+  fs.writeSync(junitOut, buf, 0, bytesRead);
+}
+fs.closeSync(tmpFd);
+fs.unlinkSync(junitTmpPath);
+
+jWrite('\n</testsuites>\n');
+fs.closeSync(junitOut);
+
+// ── Console breakdown ────────────────────────────────────────────────────────
+console.log('┌─────────────────────────────────────────────────────────────');
+console.log('│  FULL TEST BREAKDOWN');
+console.log('└─────────────────────────────────────────────────────────────');
+
+if (failedList.length) {
+  console.log('\n❌  FAILED / ERROR (' + failedList.length + '):');
+  failedList.forEach(t => console.log('  [FAIL] ' + t));
+}
+if (passedList.length) {
+  console.log('\n✅  PASSED (' + passedList.length + '):');
+  passedList.forEach(t => console.log('  [PASS] ' + t));
+}
+if (skippedList.length) {
+  console.log('\n⏭   SKIPPED (' + skippedList.length + '):');
+  skippedList.forEach(t => console.log('  [SKIP] ' + t));
+}
+
+console.log('\n══════════════════════════════════════════════════');
+console.log('  SUMMARY');
+console.log('══════════════════════════════════════════════════');
+console.log('  Total   : ' + gTests);
+console.log('  Passed  : ' + passedList.length);
+console.log('  Failed  : ' + (gFail + gErr));
+console.log('  Skipped : ' + gSkip);
+console.log('  Time    : ' + gTime.toFixed(1) + 's');
+console.log('');
+['wdi5','opa5','uiveri5'].forEach(fw => {
+  const c = fwMap[fw];
+  console.log('  [' + fw.toUpperCase() + ']  tests=' + c.t + '  fail=' + (c.f+c.e) + '  skip=' + c.s);
+});
+console.log('══════════════════════════════════════════════════\n');
+
+// ── JSON summary ─────────────────────────────────────────────────────────────
+const sonarBufKeys = global._sonarBuf ? [...global._sonarBuf.keys()] : [];
 const summary = {
-    generatedAt: new Date().toISOString(),
-    total, passed, failed, skipped,
-    byFile: fileBreakdown,
+  timestamp   : new Date().toISOString(),
+  totals      : { tests: gTests, passed: passedList.length, failed: gFail + gErr, skipped: gSkip, time: +gTime.toFixed(1) },
+  byFramework : fwMap,
+  specFiles   : sonarBufKeys.length ? sonarBufKeys : passedList.concat(failedList).concat(skippedList).map(l => l.split(']')[1]?.trim().split(' ')[0] ?? '').filter(Boolean)
 };
+fs.writeFileSync('reports/test-summary.json', JSON.stringify(summary, null, 2), 'utf8');
 
-fs.writeFileSync(SUMMARY_FILE, JSON.stringify(summary, null, 2));
-
-// ── Console output ────────────────────────────────────────────────────────────
-console.log('\n========================================');
-console.log('  TEST EXECUTION SUMMARY');
-console.log('========================================');
-console.log(`  Total  : ${total}`);
-console.log(`  ✅ Passed : ${passed}`);
-console.log(`  ❌ Failed : ${failed}`);
-console.log(`  ⏭  Skipped: ${skipped}`);
-console.log('----------------------------------------');
-
-for (const [file, stats] of Object.entries(fileBreakdown)) {
-    if (stats.total === 0) continue;
-    const icon = stats.failed > 0 ? '❌' : '✅';
-    console.log(`\n${icon} ${file}`);
-    console.log(`   Passed: ${stats.passed}  Failed: ${stats.failed}  Skipped: ${stats.skipped}`);
-    if (stats.failedTests.length > 0) {
-        console.log('   FAILED TESTS:');
-        for (const ft of stats.failedTests) {
-            console.log(`     ✖ ${ft.name}`);
-            if (ft.message) {
-                console.log(`       → ${ft.message.substring(0, 120)}`);
-            }
-        }
-    }
-}
-
-console.log('\n========================================');
-console.log(`Sonar XML  : ${OUT_FILE}`);
-console.log(`Summary    : ${SUMMARY_FILE}`);
-console.log('========================================\n');
+console.log('✅  Merged JUnit  → reports/junit/combined/all-results.xml');
+console.log('✅  Sonar Generic → reports/sonar/test-execution.xml');
+console.log('✅  Summary JSON  → reports/test-summary.json');

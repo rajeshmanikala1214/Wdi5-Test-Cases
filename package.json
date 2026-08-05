@@ -3,8 +3,10 @@
   "version": "1.0.0",
   "description": "UI5 Automation Tests – WDI5 + OPA5 + UiVeri5",
   "scripts": {
+    "start:server": "ui5 serve --port 8080",
     "test:opa5": "node scripts/run-opa5.js",
-    "test:wdi5": "wdio run ./wdio.conf.js",
+    "wdi5:run": "wdio run ./wdio.conf.js",
+    "test:wdi5": "start-server-and-test start:server http://localhost:8080/index.html wdi5:run",
     "test:wdi5:cov:ci": "npx serve -s . -l 8080 & SERVER_PID=$! && sleep 3 && nyc --reporter=lcov --reporter=text --report-dir=coverage wdio run ./wdio.conf.js; EXIT=$?; kill $SERVER_PID 2>/dev/null; exit $EXIT",
     "test:uiveri5": "uiveri5 --config webapp/test/ui5-uiveri5/conf.js",
     "ci-all": "npm run test:wdi5 && npm run test:opa5",
@@ -16,7 +18,9 @@
     ],
     "exclude": [
       "webapp/test/**",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "./webapp/test/e2e/multiremote.test.js",
+     "./webapp/test/e2e/ui5-late.test.js"
     ],
     "reporter": [
       "lcov",
@@ -27,20 +31,23 @@
     "all": true
   },
   "devDependencies": {
-    "@wdio/cli": "^8.8.1",
-    "@wdio/json-reporter": "^8.8.1",
-    "@wdio/junit-reporter": "^8.8.1",
-    "@wdio/local-runner": "^8.8.1",
-    "@wdio/mocha-framework": "^8.8.1",
-    "@wdio/spec-reporter": "^8.8.1",
-    "grunt": "^1.6.1",
-    "grunt-cli": "^1.4.3",
-    "karma": "^6.4.4",
-    "karma-chrome-launcher": "^3.2.0",
-    "karma-junit-reporter": "^2.0.1",
-    "karma-ui5": "^4.1.0",
-    "nyc": "^15.1.0",
-    "wdio-ui5-service": "^2.2.1"
+  "@ui5/cli": "^3.11.0",
+  "start-server-and-test": "^2.0.11",
+  "ui5-middleware-simpleproxy": "^3.5.0",
+  "@wdio/cli": "^8.40.0",
+  "@wdio/json-reporter": "^8.40.0",
+  "@wdio/junit-reporter": "^8.40.0",
+  "@wdio/local-runner": "^8.40.0",
+  "@wdio/mocha-framework": "^8.40.0",
+  "@wdio/spec-reporter": "^8.40.0",
+  "grunt": "^1.6.1",
+  "grunt-cli": "^1.4.3",
+  "karma": "^6.4.4",
+  "karma-chrome-launcher": "^3.2.0",
+  "karma-junit-reporter": "^2.0.1",
+  "karma-ui5": "^4.1.0",
+  "nyc": "^15.1.0",
+  "wdio-ui5-service": "^2.2.1"
   },
   "dependencies": {
     "selenium-webdriver": "^4.15.0"

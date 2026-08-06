@@ -3,10 +3,12 @@
   "version": "1.0.0",
   "description": "UI5 Automation Tests – WDI5 + OPA5 + UiVeri5",
   "scripts": {
-    "start:server": "ui5 serve --port 8080",
+    "start:server": "ui5 serve --port 8080 --config ui5.yaml",
     "test:opa5": "node scripts/run-opa5.js",
+    "wdi5:run:ci": "wdio run ./wdio.ci.conf.js",
     "wdi5:run": "wdio run ./wdio.conf.js",
     "test:wdi5": "start-server-and-test start:server http://localhost:8080/index.html wdi5:run",
+    "test:wdi5:ci": "start-server-and-test start:server http://localhost:8080/index.html wdi5:run:ci",
     "test:wdi5:cov:ci": "npx serve -s . -l 8080 & SERVER_PID=$! && sleep 3 && nyc --reporter=lcov --reporter=text --report-dir=coverage wdio run ./wdio.conf.js; EXIT=$?; kill $SERVER_PID 2>/dev/null; exit $EXIT",
     "test:uiveri5": "uiveri5 --config webapp/test/ui5-uiveri5/conf.js",
     "ci-all": "npm run test:wdi5 && npm run test:opa5",

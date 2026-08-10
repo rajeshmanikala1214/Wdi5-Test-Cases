@@ -32,6 +32,8 @@ function normalizePath(raw) {
 }
 
 const esc = s => String(s ?? '')
+  // remove characters that are illegal in XML 1.0 (e.g. ANSI escape 0x1B in stack traces)
+  .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
 

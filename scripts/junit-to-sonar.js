@@ -18,6 +18,19 @@ const OUT = process.env.WDI5_SONAR_OUT || 'reports/test-execution.xml';
 
 const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 const asArray = x => (x == null ? [] : Array.isArray(x) ? x : [x]);
+
+// Sonar needs a path relative to the project base dir. WDIO 8 (ESM) emits spec
+// names as file:// URLs, so the junit "file" attr looks like
+// "file://./webapp/test/e2e/x.test.js". Strip the scheme, URL-decode, drop the
+// leading "./", normalize separators, and relativize any absolute remainder.
+function normalizePath(raw) {
+  let p = String(raw).replace(/\\/g, '/').replace(/^file:\/\//i, '');
+  try { p = decodeURIComponent(p); } catch (_) { /* leave as-is */ }
+  p = p.replace(/^\.\//, '');
+  if (path.isAbsolute(p)) p = path.relative(process.cwd(), p).replace(/\\/g, '/');
+  return p;
+}
+
 const esc = s => String(s ?? '')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;');
@@ -47,9 +60,7 @@ for (const file of collectFiles(IN_DIR)) {
     for (const tc of asArray(suite?.testcase)) {
       const rawPath = tc['@_file'] || suite['@_file'] ||
         'webapp/test/e2e/' + String(tc['@_classname'] || suite['@_name'] || 'unknown') + '.test.js';
-      // Sonar needs a path relative to the project base dir: strip leading ./ and
-      // normalize Windows separators so it maps to an indexed test file.
-      const filePath = String(rawPath).replace(/\\/g, '/').replace(/^\.\//, '');
+      const filePath = normalizePath(rawPath);
       const secs = parseFloat(tc['@_time']);
       const duration = Number.isFinite(secs) ? Math.max(0, Math.round(secs * 1000)) : 0;
       const cls = tc['@_classname'] ? `${tc['@_classname']} > ` : '';

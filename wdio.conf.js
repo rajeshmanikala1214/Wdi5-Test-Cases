@@ -41,14 +41,9 @@ customLaunchers: {
         logLevel: 'verbose'
     },
 
-    reporters: [
-        'spec',
-        ['junit', {
-            outputDir: './reports/junit/wdi5'
-        }],
-        ['json', {
-            outputDir: './reports/json/wdi5'
-        }]
+    reporters: [ 'spec',
+    ['junit', { outputDir: './reports/junit/wdi5', addFileAttribute: true }],
+    ['json',  { outputDir: './reports/json/wdi5' }]
     ],
 
     baseUrl: process.env.BASE_URL || 'http://localhost:8080/index.html',

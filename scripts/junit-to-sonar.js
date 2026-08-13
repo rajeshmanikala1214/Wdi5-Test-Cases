@@ -24,10 +24,10 @@ const asArray = x => (x == null ? [] : Array.isArray(x) ? x : [x]);
 // "file://./webapp/test/e2e/x.test.js". Strip the scheme, URL-decode, drop the
 // leading "./", normalize separators, and relativize any absolute remainder.
 function normalizePath(raw) {
-  let p = String(raw).replace(/\\/g, '/').replace(/^file:\/\//i, '');
-  try { p = decodeURIComponent(p); } catch (_) { /* leave as-is */ }
-  p = p.replace(/^\.\//, '');
-  if (path.isAbsolute(p)) p = path.relative(process.cwd(), p).replace(/\\/g, '/');
+  let p = String(raw).replace(/\\/g, '/').replace(/^file:\/\//i, ''); // file://./x -> ./x ; file:///a -> /a
+  try { p = decodeURIComponent(p); } catch (_) {}
+  p = p.replace(/^\.\//, '');                                          // ./x -> x
+  if (require('path').isAbsolute(p)) p = require('path').relative(process.cwd(), p).replace(/\\/g, '/');
   return p;
 }
 
